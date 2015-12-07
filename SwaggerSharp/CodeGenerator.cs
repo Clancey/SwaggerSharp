@@ -47,8 +47,24 @@ namespace SwaggerSharp
 			space.Types.Add(targetClass);
 			var output = Directory.GetCurrentDirectory();
             var csProvider = new CSharpCodeProvider();
+
+			//Write to memory, then clean up ugly code from autogen properties
+			var memStream = new MemoryStream();
+			var streamWriter = new StreamWriter(memStream);
+			
+			csProvider.GenerateCodeFromCompileUnit(target, streamWriter, null);
+			streamWriter.Flush();
+			memStream.Position = 0;
+			string contents;
+			using (var reader = new StreamReader(memStream))
+			{
+				contents = reader.ReadToEnd();
+				contents = contents.Replace("//;", "");
+			}
+
+
 			var tw = File.CreateText(Path.Combine(output, $"{apiClassName}.cs"));
-			csProvider.GenerateCodeFromCompileUnit(target, tw, null);
+			tw.Write(contents);
 			tw.Close();
 		}
 
@@ -195,6 +211,7 @@ namespace SwaggerSharp
 		{
 			foreach (var member in from propertyType in schemeObject.Properties let type = GetPropertyType(propertyType.Value) select new CodeMemberField
 			{
+				//Codedom does not support pretty auto properties...
 				Name = $"{UpperCaseFirst(propertyType.Key)} {{get; set;}}//",
 				Attributes = MemberAttributes.Public,
 				Type = type,

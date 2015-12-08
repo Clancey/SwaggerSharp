@@ -196,10 +196,14 @@ namespace SwaggerSharp
 		void AddPathToApi(CodeTypeDeclaration targetClass, string pathAttribute,KeyValuePair<string,PathDescription> path,
 			SwaggerResponse swaggerResponse)
 		{
-			var member = new CodeMemberMethod
+			//Always prepend operaton type to the operation name
+			var betterName = UpperCaseFirst(path.Value.OperationId);
+			if (betterName.IndexOf(path.Key, StringComparison.CurrentCultureIgnoreCase) < 0)
+				betterName = UpperCaseFirst(path.Key) + betterName;
+            var member = new CodeMemberMethod
 			{
 				Attributes = MemberAttributes.Public,
-				Name = UpperCaseFirst(path.Value.OperationId),
+				Name = betterName,
 				CustomAttributes =
 				{
 					new CodeAttributeDeclaration("Path",new CodeAttributeArgument {Value = new CodePrimitiveExpression(pathAttribute)})
@@ -207,9 +211,10 @@ namespace SwaggerSharp
 			};
 
 			string returnType = "Task";
+			string responseType = null;
 			foreach (var response in path.Value.Responses.Where(x=> x.Key == "200" || x.Key == "default" ))
 			{
-				var responseType = GetTypeFromPropertyType(response.Value.Schema);
+				responseType = GetTypeFromPropertyType(response.Value.Schema);
 				if (responseType != null)
 				{
 					returnType = $"Task<{responseType}>";
@@ -221,18 +226,89 @@ namespace SwaggerSharp
 			{
 				Console.WriteLine("foo");
 			}
+			var authentictated = path.Value.Security.Any();
+			var QueryParameters = new Dictionary<string,string>();
+			var HeaderParameters = new Dictionary<string, string>();
+			var FormsDataParameters = new Dictionary<string, string>();
+			string body = null;
+
 			foreach (var parameter in path.Value.Parameters.OrderByDescending(x=> x.Required))
 			{
 				var type = GetTypeFromPropertyType(parameter.Type == null ? parameter.Schema : parameter, !parameter.Required);
 				var name = !parameter.Required ? $"{parameter.Name} = null" : parameter.Name;
                 member.Parameters.Add(new CodeParameterDeclarationExpression(type,name));
+				switch (parameter.In)
+				{
+					case ParameterLocation.Body:
+						body = parameter.Name;
+						break;
+					case ParameterLocation.FormData:
+						FormsDataParameters[parameter.Name] = ValueToString(parameter.Name, type, !parameter.Required);
+						break;
+					case ParameterLocation.Query:
+					case ParameterLocation.Path:
+						QueryParameters[parameter.Name] = ValueToString(parameter.Name, type, !parameter.Required);
+                        break;
+					case ParameterLocation.Header:
+						HeaderParameters[parameter.Name] = ValueToString(parameter.Name, type, !parameter.Required);
+                        break;
+				}
+			}
+			
+			string queryCode = !QueryParameters.Any() ? null : $"var queryParameters = new Dictionary<string,string>{{ {string.Join(",",QueryParameters.Select(x=> $"{{ \"{x.Key}\" , {x.Value} }}"))} }}";
+			if(queryCode != null)
+				member.Statements.Add(new CodeSnippetExpression(queryCode));
+
+			string headerCode = !HeaderParameters.Any() ? null : $"var headerParameters = new Dictionary<string,string>{{ {string.Join(",", HeaderParameters.Select(x => $"{{ \"{x.Key}\" , {x.Value} }}"))} }}";
+			if (headerCode != null)
+				member.Statements.Add(new CodeSnippetExpression(headerCode));
+
+
+			string formsCode = !FormsDataParameters.Any() ? null : $"var formsParameters = new Dictionary<string,string>{{ {string.Join(",", FormsDataParameters.Select(x => $"{{ \"{x.Key}\" , {x.Value} }}"))} }}";
+			if (formsCode != null)
+			{
+				member.Statements.Add(new CodeSnippetExpression(formsCode));
+				member.Statements.Add(new CodeSnippetExpression("var formsContent = new FormUrlEncodedContent(formsParameters);"));
 			}
 
+			var method = UpperCaseFirst(path.Key.ToLower());
 
+			var returnStatement = CreateMethodCall(method, responseType, body, formsCode != null, queryCode != null,
+				headerCode != null, authentictated);
+			member.Statements.Add(returnStatement);
 			targetClass.Members.Add(member);
 
 		}
 
+		static CodeExpression CreateMethodCall(string method, string responseType, string body, bool hasForms, bool hasQuery,
+			bool hasHeaders, bool authenticated)
+		{
+			var methodCall = string.IsNullOrWhiteSpace(responseType) ? method : $"{method}<{responseType}>";
+
+			var parameters = new List<string>();
+			if(!string.IsNullOrWhiteSpace(body))
+				parameters.Add(body);
+			else if(hasForms)
+				parameters.Add("formsContent");
+
+			if(hasQuery)
+				parameters.Add("queryParameters: queryParameters");
+			if(hasHeaders)
+				parameters.Add("headerParameters: headerParameters");
+			
+			parameters.Add($"authenticated: {authenticated}");
+
+			var joined = string.Join(", ", parameters);
+
+			var returnStatmenet = $"return {methodCall}( {joined} )";
+			return new CodeSnippetExpression(returnStatmenet);
+
+		}
+
+		static string ValueToString(string name, string type, bool isNullable)
+		{
+			return type == "string" ? name : isNullable ? $"{name}?.ToString()" : $"{name}.ToString()";
+		}
 
 		void CreateClass(SchemeObject swaggerObject)
 		{

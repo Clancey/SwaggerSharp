@@ -16,12 +16,13 @@ namespace SwaggerSharp
 {
 	class CodeGenerator
 	{
+		public string DefaultNameSpace { get; set; } = "Swagger";
 		CodeNamespace space;
 		public async Task CreateApi(SwaggerResponse swaggerResponse)
 		{
 
 			var target = new CodeCompileUnit();
-			space = new CodeNamespace("Swagger");
+			space = new CodeNamespace(DefaultNameSpace);
 			target.Namespaces.Add(space);
 
 			foreach (var def in swaggerResponse.Definitions)
@@ -29,22 +30,13 @@ namespace SwaggerSharp
 				CreateClass(def.Value);
 			}
 
-			var api = swaggerResponse.SecurityDefinitions.FirstOrDefault().Value;
-			
+			var api = swaggerResponse.SecurityDefinitions.FirstOrDefault();
+			if(api.Value != null)
+				api.Value.Name = api.Key;
 			var title = CleanseName(swaggerResponse.Info.Title);
 			var apiClassName = $"{title}Api";
-			CreateApiClass(apiClassName, swaggerResponse, api);
-			var baseClass = GetApiType(api);
-			var targetClass = new CodeTypeDeclaration(apiClassName);
-				targetClass.BaseTypes.Add(new CodeTypeReference(baseClass));
-
-			targetClass.IsClass = baseClass.IsClass;
-			targetClass.Attributes = MemberAttributes.Public;
-			AddConstructors(targetClass, baseClass, api);
-			//AddCodeProperties(targetClass, theClass);
-			//AddCodeMethods(targetClass, theClass);
-			
-			space.Types.Add(targetClass);
+			CreateApiClass(apiClassName, swaggerResponse, api.Value);
+		
 			var output = Directory.GetCurrentDirectory();
             var csProvider = new CSharpCodeProvider();
 
@@ -60,37 +52,14 @@ namespace SwaggerSharp
 			{
 				contents = reader.ReadToEnd();
 				contents = contents.Replace("//;", "");
+				//@ is added to all default types :(
+				contents = contents.Replace("@","");
 			}
 
 
 			var tw = File.CreateText(Path.Combine(output, $"{apiClassName}.cs"));
 			tw.Write(contents);
 			tw.Close();
-		}
-
-		void CreateClass(SchemeObject swaggerObject)
-		{
-
-			//var baseClass = GetApiType(api);
-			if (swaggerObject.Type != "object")
-			{
-				
-				throw new Exception($"Unknown definitio type: {swaggerObject.Name} - {swaggerObject.Type}");
-			}
-			var baseClass = swaggerObject.AllOf.Select(x=> x.SchemeObject).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x?.Discriminator));
-			var targetClass = new CodeTypeDeclaration(swaggerObject.Name);
-			if(baseClass != null)
-				targetClass.BaseTypes.Add(new CodeTypeReference(baseClass.Name));
-			
-			targetClass.Attributes = MemberAttributes.Public;
-			targetClass.IsPartial = true;
-			AddPropertiesToObject(targetClass, swaggerObject);
-			foreach (var reference in swaggerObject.AllOf?.Where(x=> x.SchemeObject != baseClass))
-			{
-				AddPropertiesToObject(targetClass, reference.SchemeObject);
-			}
-
-			space.Types.Add(targetClass);
 		}
 		void CreateApiClass(string apiClassName, SwaggerResponse swaggerResponse, SecurityDefinition api)
 		{
@@ -103,6 +72,7 @@ namespace SwaggerSharp
 			targetClass.IsPartial = true;
 			targetClass.Attributes = MemberAttributes.Public;
 			AddConstructors(targetClass, baseClass, api);
+			AddPathsToApi(targetClass,swaggerResponse,api);
 			//AddCodeProperties(targetClass, theClass);
 			//AddCodeMethods(targetClass, theClass);
 
@@ -207,6 +177,87 @@ namespace SwaggerSharp
 
 		}
 
+		void AddPathsToApi(CodeTypeDeclaration targetClass, SwaggerResponse swaggerResponse, SecurityDefinition def)
+		{
+			foreach (var path in swaggerResponse.Paths)
+			{
+				var pathvalue = path.Key;
+				foreach (var pathDescription in path.Value)
+				{
+					var included = !pathDescription.Value.Security.Any() || pathDescription.Value.Security.Any(x=> x.ContainsKey(def.Name));
+					if (!included)
+						continue;
+					AddPathToApi(targetClass,pathvalue,pathDescription,swaggerResponse);
+				}
+
+			}
+		}
+
+		void AddPathToApi(CodeTypeDeclaration targetClass, string pathAttribute,KeyValuePair<string,PathDescription> path,
+			SwaggerResponse swaggerResponse)
+		{
+			var member = new CodeMemberMethod
+			{
+				Attributes = MemberAttributes.Public,
+				Name = UpperCaseFirst(path.Value.OperationId),
+				CustomAttributes =
+				{
+					new CodeAttributeDeclaration("Path",new CodeAttributeArgument {Value = new CodePrimitiveExpression(pathAttribute)})
+				}
+			};
+
+			string returnType = "Task";
+			foreach (var response in path.Value.Responses.Where(x=> x.Key == "200" || x.Key == "default" ))
+			{
+				var responseType = GetTypeFromPropertyType(response.Value.Schema);
+				if (responseType != null)
+				{
+					returnType = $"Task<{responseType}>";
+					break;
+				}
+			}
+			member.ReturnType = new CodeTypeReference(returnType);
+			if (pathAttribute == "/user/createWithArray")
+			{
+				Console.WriteLine("foo");
+			}
+			foreach (var parameter in path.Value.Parameters.OrderByDescending(x=> x.Required))
+			{
+				var type = GetTypeFromPropertyType(parameter.Type == null ? parameter.Schema : parameter, !parameter.Required);
+				var name = !parameter.Required ? $"{parameter.Name} = null" : parameter.Name;
+                member.Parameters.Add(new CodeParameterDeclarationExpression(type,name));
+			}
+
+
+			targetClass.Members.Add(member);
+
+		}
+
+
+		void CreateClass(SchemeObject swaggerObject)
+		{
+
+			//var baseClass = GetApiType(api);
+			if (swaggerObject.Type != "object")
+			{
+
+				throw new Exception($"Unknown definitio type: {swaggerObject.Name} - {swaggerObject.Type}");
+			}
+			var baseClass = swaggerObject.AllOf.Select(x => x.SchemeObject).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x?.Discriminator));
+			var targetClass = new CodeTypeDeclaration(swaggerObject.Name);
+			if (baseClass != null)
+				targetClass.BaseTypes.Add(new CodeTypeReference(baseClass.Name));
+
+			targetClass.Attributes = MemberAttributes.Public;
+			targetClass.IsPartial = true;
+			AddPropertiesToObject(targetClass, swaggerObject);
+			foreach (var reference in swaggerObject.AllOf?.Where(x => x.SchemeObject != baseClass))
+			{
+				AddPropertiesToObject(targetClass, reference.SchemeObject);
+			}
+
+			space.Types.Add(targetClass);
+		}
 		void AddPropertiesToObject(CodeTypeDeclaration targetClass, SchemeObject schemeObject)
 		{
 			foreach (var member in from propertyType in schemeObject.Properties let type = GetPropertyType(propertyType.Value) select new CodeMemberField
@@ -244,39 +295,42 @@ namespace SwaggerSharp
 			return new CodeTypeReference(typeof (string));
 		}
 
-		static Type GetTypeFromPropertyType(PropertyType property)
+		static string GetTypeFromPropertyType(PropertyType property, bool nullable = false)
 		{
-			switch (property.Type)
+			switch (property?.Type)
 			{
 				case "integer":
-					return typeof(int);
+					return nullable ? "?int" : "int";
 				case "long":
-					return typeof(long);
+					return nullable ? "?long" : "long";
 				case "float":
-					return typeof(float);
+					return nullable ? "?float" : "float";
 				case "double":
-					return typeof(double);
+					return nullable ? "?double" : "double";
 				case "string":
 				case "password":
-					return typeof(string);
+					return "string";
 				case "byte":
 				case "binary":
-					return typeof(byte[]);
+				case "file":
+					return "byte[]";
 				case "boolean":
-					return typeof(bool);
+					return nullable ? "?bool" : "bool";
 				case "date":
 				case "dateTime":
-					return typeof(DateTime);
+					return nullable ? "?DateTime" : "DateTime";
 				case "array":
-					var arraytype = GetTypeFromPropertyType(property.Items);
-					if (arraytype == null)
-					{
-						return null;
-					}
-					return Array.CreateInstance(arraytype, 0).GetType();
+					var arraytype = GetTypeFromPropertyType(property.Items) ?? property.Items.SchemeObject?.Name;
+					return $"{arraytype}[]";
 			}
+			if (property?.SchemeObject != null)
+			{
+				return property.SchemeObject.Name;
+			}
+			Console.WriteLine("Should not happen!!!");
 			return null;
 		}
+
 		Type GetApiType(SecurityDefinition def)
 		{
 			return typeof(SimpleAuth.Api);

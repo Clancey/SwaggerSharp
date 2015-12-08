@@ -18,9 +18,9 @@ namespace SwaggerSharp
 		public string BasePath { get; set; }
 		public Tag[] Tags { get; set; } = new Tag[0];
 		public string[] Schemes { get; set; } = new string[0];
-		public Dictionary<string,Dictionary<string,PathDescription>> Paths { get; set; }
-		public Dictionary<string,SecurityDefinition> SecurityDefinitions { get; set; }
-		public Dictionary<string, SchemeObject> Definitions { get; set; }
+		public Dictionary<string,Dictionary<string,PathDescription>> Paths { get; set; } = new Dictionary<string, Dictionary<string, PathDescription>>();
+		public Dictionary<string,SecurityDefinition> SecurityDefinitions { get; set; } = new Dictionary<string, SecurityDefinition>();
+		public Dictionary<string, SchemeObject> Definitions { get; set; } = new Dictionary<string, SchemeObject>();
 		public Externaldocs ExternalDocs { get; set; }
 
 		public SchemeObject GetFromRef(string reference)
@@ -46,18 +46,36 @@ namespace SwaggerSharp
 				def.Value.Name = def.Key;
 				foreach (var prop in def.Value.Properties)
 				{
-					if(!string.IsNullOrWhiteSpace(prop.Value.Ref ))
-						prop.Value.SchemeObject = GetFromRef(prop.Value.Ref);
-					if (!string.IsNullOrWhiteSpace(prop.Value.Items?.Ref))
-						prop.Value.Items.SchemeObject = GetFromRef(prop.Value.Items.Ref);
+					FillPropertyType(prop.Value);
 				}
 				foreach (var reference in def.Value.AllOf.Where(x=> !string.IsNullOrWhiteSpace(x?.Ref)))
 				{
-					reference.SchemeObject = GetFromRef(reference.Ref);
+					FillPropertyType(reference);
+				}
+			}
+			foreach (var value in Paths.SelectMany(path => path.Value.Values))
+			{
+				foreach (var response in value.Responses)
+				{
+					FillPropertyType(response.Value.Schema);
+				}
+				foreach (var parameter in value.Parameters)
+				{
+					FillPropertyType(parameter.Schema);
 				}
 			}
 		}
+
+		void FillPropertyType(Reference reference)
+		{
+			if (!string.IsNullOrWhiteSpace(reference?.Ref))
+				reference.SchemeObject = GetFromRef(reference.Ref);
+			var property = reference as PropertyType;
+			if (!string.IsNullOrWhiteSpace(property?.Items?.Ref))
+				property.Items.SchemeObject = GetFromRef(property.Items.Ref);
+		}
 	}
+
 	public class Info
 	{
 		public string Description { get; set; }
@@ -175,15 +193,15 @@ namespace SwaggerSharp
 
 	public class PathDescription
 	{
-		public string[] Tags { get; set; }
+		public string[] Tags { get; set; } = new string[0];
 		public string Summary { get; set; }
 		public string Description { get; set; }
 		public string OperationId { get; set; }
 		//public string[] Consumes { get; set; }
 		//public string[] Produces { get; set; }
-		public Parameter[] Parameters { get; set; }
-		public Dictionary<string,Response> Responses { get; set; }
-		public Dictionary<string,string[]>[] Security { get; set; }
+		public Parameter[] Parameters { get; set; } = new Parameter[0];
+		public Dictionary<string,Response> Responses { get; set; } = new Dictionary<string, Response>();
+		public Dictionary<string,string[]>[] Security { get; set; } = new Dictionary<string, string[]>[0];
 
 	}
 
@@ -201,12 +219,26 @@ namespace SwaggerSharp
 		public string Name { get; set; }
 		public string Url { get; set; }
 	}
+	
+	public enum ParameterLocation
+	{
+		Query,
+		Header,
+		Path,
+		FormData,
+		Body
+	}
 
 	public class Parameter : PropertyType
 	{
-		public string In { get; set; }
+		public ParameterLocation In { get; set; }
 		public string Name { get; set; }
-		public SchemeObject Schema { get; set; }
+
+		public string Description { get; set; }
+
+		public bool Required { get; set; }
+
+		public PropertyType Schema { get; set; }
 
 		//TODO:
 		//public Item[] Items { get; set; }
@@ -218,7 +250,7 @@ namespace SwaggerSharp
 	{
 		public string Description { get; set; }
 
-		public SchemeObject Schema { get; set; }
+		public PropertyType Schema { get; set; }
 
 		public Dictionary<string,Parameter> Headers { get; set; }
 

@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Schema;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 
 namespace SwaggerSharp
 {
@@ -103,11 +104,14 @@ namespace SwaggerSharp
 
 	public enum SecurityType
 	{
+		NoAuth,
 		Oauth2,
 		ApiKey,
-		Basic
+		Basic,
+		OauthApiKey,
 	}
 
+	[JsonConverter((typeof(DefualtEnumConverter)))]
 	public enum AuthLocation
 	{
 		Query,
@@ -119,7 +123,12 @@ namespace SwaggerSharp
 
 		public string Description { get; set; }
 
-		public string Name { get; set; }
+		public string SecurityName { get; set; }
+
+		[JsonProperty("Name")]
+		public string ApiKey { get; set; }
+
+	    public string ApikeyName { get; set; } = "";
 
 		public AuthLocation In { get; set; }
 
@@ -136,7 +145,7 @@ namespace SwaggerSharp
 	{
 		public string Name { get; set; }
 
-		public string Type { get; set; }
+		public string Type { get; set; } = "object";
 
 		public string Discriminator { get; set; }
 
@@ -197,8 +206,8 @@ namespace SwaggerSharp
 		public string Summary { get; set; }
 		public string Description { get; set; }
 		public string OperationId { get; set; }
-		//public string[] Consumes { get; set; }
-		//public string[] Produces { get; set; }
+		public string[] Consumes { get; set; } = new string[0];
+		public string[] Produces { get; set; } = new string[0];
 		public Parameter[] Parameters { get; set; } = new Parameter[0];
 		public Dictionary<string,Response> Responses { get; set; } = new Dictionary<string, Response>();
 		public Dictionary<string,string[]>[] Security { get; set; } = new Dictionary<string, string[]>[0];
@@ -220,6 +229,7 @@ namespace SwaggerSharp
 		public string Url { get; set; }
 	}
 	
+	[JsonConverter(typeof(DefualtEnumConverter))]
 	public enum ParameterLocation
 	{
 		Query,
@@ -255,5 +265,17 @@ namespace SwaggerSharp
 		public Dictionary<string,Parameter> Headers { get; set; }
 
 		//public Dictionary<string, > Examples = new	Dictionary<string,???>(); 
+	}
+
+	public class DefualtEnumConverter : StringEnumConverter
+	{
+		public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+		{
+			if (string.IsNullOrWhiteSpace(reader.Value.ToString()))
+			{
+				return Enum.Parse(objectType, "0");
+			}
+			return base.ReadJson(reader, objectType, existingValue, serializer);
+		}
 	}
 }

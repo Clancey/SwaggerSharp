@@ -379,7 +379,8 @@ namespace SwaggerSharp
 			foreach (var parameter in path.Value.Parameters.OrderByDescending(x=> x.Required))
 			{
 				var type = GetTypeFromPropertyType(parameter.Type == null ? parameter.Schema : parameter, !parameter.Required);
-				var name = !parameter.Required ? $"{parameter.Name} = null" : parameter.Name;
+				var defaultValue = string.IsNullOrWhiteSpace(parameter.Default) ? "null" :( type == "string" ? $"\"{parameter.Default}\"" : parameter.Default);
+				var name = !parameter.Required ? $"{parameter.Name} = {defaultValue}" : parameter.Name;
                 member.Parameters.Add(new CodeParameterDeclarationExpression(type,name));
 				switch (parameter.In)
 				{
@@ -495,6 +496,11 @@ namespace SwaggerSharp
 			foreach (var member in from propertyType in schemeObject.Properties.Where(x=> !string.IsNullOrWhiteSpace(x.Key)) let type = GetPropertyType(propertyType.Value) select new CodeMemberField
 			{
 				//Codedom does not support pretty auto properties...
+				CustomAttributes =
+				{
+					
+					new CodeAttributeDeclaration("Newtonsoft.Json.JsonProperty",new CodeAttributeArgument(new CodeSnippetExpression($"\"{propertyType.Key}\"" ))),
+                },
 				Name = $"{CleanseName(propertyType.Key)} {{get; set;}}//",
 				Attributes = MemberAttributes.Public,
 				Type = type,
@@ -583,14 +589,16 @@ namespace SwaggerSharp
 		static string CleanseName(string name)
 		{
 			var strings = name.Split(' ','-','_');
-			return UpperCaseFirst(strings.Aggregate("", (current, s) => current + UpperCaseFirst(s)));
+			if (strings.Length == 1)
+				return name;
+			return strings.Aggregate("", (current, s) => current + UpperCaseFirst(s));
 		}
 
 		static string UpperCaseFirst(string s)
 		{
 			if(string.IsNullOrWhiteSpace(s?.Trim()))
 				return s;
-			var a = s.ToCharArray();
+			var a = s.ToLower().ToCharArray();
 			a[0] = char.ToUpper(a[0]);
 			return new string(a);
 		}

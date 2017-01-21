@@ -1,17 +1,17 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 14
-VisualStudioVersion = 14.0.23107.0
+VisualStudioVersion = 14.0.25123.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwaggerSharp", "SwaggerSharp\SwaggerSharp.csproj", "{B943A92F-4E81-40BB-B3DE-15969BC7C88A}"
 EndProject
 Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "SimpleAuth", "..\SimpleAuth\src\SimpleAuth\SimpleAuth.shproj", "{9FDA9BD4-3D55-4132-9055-98986C50E0A4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleAuth.Portable", "..\SimpleAuth\src\SimpleAuth.Portable\SimpleAuth.Portable.csproj", "{A9AFE645-9D2C-4D04-98AC-96990D9BA60E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SimpleAuth.Net45", "..\SimpleAuth\src\SimpleAuth.Net45\SimpleAuth.Net45.csproj", "{45A98478-4435-4505-BAF3-37F854AC671B}"
 EndProject
 Global
 	GlobalSection(SharedMSBuildProjectFiles) = preSolution
-		..\SimpleAuth\src\SimpleAuth\SimpleAuth.projitems*{a9afe645-9d2c-4d04-98ac-96990d9ba60e}*SharedItemsImports = 4
+		..\SimpleAuth\src\SimpleAuth\SimpleAuth.projitems*{45a98478-4435-4505-baf3-37f854ac671b}*SharedItemsImports = 4
 		..\SimpleAuth\src\SimpleAuth\SimpleAuth.projitems*{9fda9bd4-3d55-4132-9055-98986c50e0a4}*SharedItemsImports = 13
 	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -23,10 +23,10 @@ Global
 		{B943A92F-4E81-40BB-B3DE-15969BC7C88A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B943A92F-4E81-40BB-B3DE-15969BC7C88A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B943A92F-4E81-40BB-B3DE-15969BC7C88A}.Release|Any CPU.Build.0 = Release|Any CPU
-		{A9AFE645-9D2C-4D04-98AC-96990D9BA60E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A9AFE645-9D2C-4D04-98AC-96990D9BA60E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A9AFE645-9D2C-4D04-98AC-96990D9BA60E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A9AFE645-9D2C-4D04-98AC-96990D9BA60E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{45A98478-4435-4505-BAF3-37F854AC671B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{45A98478-4435-4505-BAF3-37F854AC671B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{45A98478-4435-4505-BAF3-37F854AC671B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{45A98478-4435-4505-BAF3-37F854AC671B}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

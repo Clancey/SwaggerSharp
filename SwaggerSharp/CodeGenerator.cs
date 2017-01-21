@@ -301,7 +301,7 @@ namespace SwaggerSharp
 			var url = $"{scheme}://{response.Host}";
 			if (!url.EndsWith("/"))
 				url += "/";
-			var path = response.BasePath.TrimStart('/');
+			var path = response.BasePath?.TrimStart('/') ?? "";
 			if (!path.EndsWith("/"))
 				path += "/";
 			var uri = Path.Combine(url,path);
@@ -408,12 +408,14 @@ namespace SwaggerSharp
 			if (headerCode != null)
 				member.Statements.Add(new CodeSnippetExpression(headerCode));
 
-
+			
 			string formsCode = !FormsDataParameters.Any() ? null : $"var formsParameters = new Dictionary<string,string>{{ {string.Join(",", FormsDataParameters.Select(x => $"{{ \"{x.Key}\" , {x.Value} }}"))} }}";
 			if (formsCode != null)
 			{
+				
 				member.Statements.Add(new CodeSnippetExpression(formsCode));
 				member.Statements.Add(new CodeSnippetExpression("var formsContent = new FormUrlEncodedContent(formsParameters);"));
+				
 			}
 
 			var method = UpperCaseFirst(path.Key.ToLower());
@@ -441,6 +443,8 @@ namespace SwaggerSharp
 				parameters.Add(body);
 			else if(hasForms)
 				parameters.Add("formsContent");
+			else if (method == "Post")
+				parameters.Add("body: null");
 
 			if(hasQuery)
 				parameters.Add("queryParameters: queryParameters");
@@ -588,9 +592,9 @@ namespace SwaggerSharp
 
 		static string CleanseName(string name)
 		{
-			var strings = name.Split(' ','-','_');
+			var strings = name.Split(' ','-','_','.');
 			if (strings.Length == 1)
-				return name;
+				return UpperCaseFirst(name);
 			return strings.Aggregate("", (current, s) => current + UpperCaseFirst(s));
 		}
 
@@ -598,7 +602,7 @@ namespace SwaggerSharp
 		{
 			if(string.IsNullOrWhiteSpace(s?.Trim()))
 				return s;
-			var a = s.ToLower().ToCharArray();
+			var a = s.ToCharArray();
 			a[0] = char.ToUpper(a[0]);
 			return new string(a);
 		}

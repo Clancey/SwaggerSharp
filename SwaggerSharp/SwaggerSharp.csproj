@@ -58,9 +58,9 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\SimpleAuth\src\SimpleAuth.Portable\SimpleAuth.Portable.csproj">
-      <Project>{a9afe645-9d2c-4d04-98ac-96990d9ba60e}</Project>
-      <Name>SimpleAuth.Portable</Name>
+    <ProjectReference Include="..\..\SimpleAuth\src\SimpleAuth.Net45\SimpleAuth.Net45.csproj">
+      <Project>{45a98478-4435-4505-baf3-37f854ac671b}</Project>
+      <Name>SimpleAuth.Net45</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

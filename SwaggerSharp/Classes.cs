@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Xml.Schema;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Linq;
 
 namespace SwaggerSharp
 {
@@ -22,6 +23,7 @@ namespace SwaggerSharp
 		public Dictionary<string,Dictionary<string,PathDescription>> Paths { get; set; } = new Dictionary<string, Dictionary<string, PathDescription>>();
 		public Dictionary<string,SecurityDefinition> SecurityDefinitions { get; set; } = new Dictionary<string, SecurityDefinition>();
 		public Dictionary<string, SchemeObject> Definitions { get; set; } = new Dictionary<string, SchemeObject>();
+		public Dictionary<string, Parameter> Parameters { get; set; } = new Dictionary<string, Parameter>();
 		public Externaldocs ExternalDocs { get; set; }
 
 		public SchemeObject GetFromRef(string reference)
@@ -40,19 +42,27 @@ namespace SwaggerSharp
 			return null;
 		}
 
+		public Parameter GetParameterFromRef(string reference)
+		{
+			if (string.IsNullOrWhiteSpace(reference))
+				return null;
+			try
+			{
+				var obj = reference.Split('/').LastOrDefault();
+				return string.IsNullOrWhiteSpace(obj) ? null : Parameters[obj];
+			}
+			catch (Exception ex)
+			{
+				Console.WriteLine(ex);
+			}
+			return null;
+		}
+
 		public void FillReferences()
 		{
 			foreach (var def in Definitions)
 			{
-				def.Value.Name = def.Key;
-				foreach (var prop in def.Value.Properties)
-				{
-					FillPropertyType(prop.Value);
-				}
-				foreach (var reference in def.Value.AllOf.Where(x=> !string.IsNullOrWhiteSpace(x?.Ref)))
-				{
-					FillPropertyType(reference);
-				}
+				FixProperties(def.Key, def.Value);
 			}
 			foreach (var value in Paths.SelectMany(path => path.Value.Values))
 			{
@@ -62,16 +72,78 @@ namespace SwaggerSharp
 				}
 				foreach (var parameter in value.Parameters)
 				{
+					if (!string.IsNullOrWhiteSpace(parameter.Ref))
+					{
+						var newParam = GetParameterFromRef(parameter.Ref);
+						parameter.CopyPropertiesFrom(newParam);
+					}
+
 					FillPropertyType(parameter.Schema);
 				}
 			}
 		}
 
+		void FixProperties(string name, SchemeObject obj)
+		{
+			obj.Name = name;
+			if (obj.Items != null)
+			{
+				FillPropertyType(obj.Items);
+				obj.Items.Parent = obj;
+			}
+			
+			if (obj.Type == "array" && obj.Items.SchemeObject != null && (obj.Items.SchemeObject.Name == null || obj.Items.SchemeObject.Name == obj.Name))
+			{
+				obj.Items.SchemeObject.Name = obj.Items.Ref == null ? $"{obj.Name}Class" : obj.Name;
+			}
+			foreach (var prop in obj.Properties ?? new Dictionary<string, PropertyType>())
+			{
+				prop.Value.Name = prop.Key;
+				prop.Value.Parent = obj;
+				FillPropertyType(prop.Value);
+
+				if (prop.Value.Type == "object" && prop.Value.SchemeObject != null)
+				{
+					FixProperties(prop.Value.Ref == null ? $"{prop.Key}Class" : prop.Key, prop.Value.SchemeObject);
+
+				}
+				else if (prop.Value.Type == "array" && prop.Value.Items?.Type == "object" && prop.Value.Items.SchemeObject != null)
+				{
+					FixProperties(prop.Value.Items.Ref == null ? $"{prop.Key}Class" : prop.Key, prop.Value.Items.SchemeObject);
+
+				}
+				else if (prop.Value.Type == "array" && prop.Value.Items.SchemeObject != null && prop.Value.Items.SchemeObject.Name == null)
+				{
+					prop.Value.Items.SchemeObject.Name = prop.Value.Items.Ref == null ? $"{prop.Value.Name}Class" : prop.Value.Name;
+				}
+
+			}
+			foreach (var reference in obj.AllOf.Where(x => !string.IsNullOrWhiteSpace(x?.Ref)))
+			{
+				FillPropertyType(reference);
+			}
+
+		}
+
 		void FillPropertyType(Reference reference)
 		{
+			if (reference == null)
+				return;
+			
 			if (!string.IsNullOrWhiteSpace(reference?.Ref))
 				reference.SchemeObject = GetFromRef(reference.Ref);
 			var property = reference as PropertyType;
+
+
+			//If the object is an arry, lets just propery set the scheme object to an array
+			if (property?.SchemeObject?.Type == "array")
+			{
+				property.Type = "array";
+				property.Items = property.SchemeObject.Items;
+				property.SchemeObject = null;
+			}
+
+
 			if (!string.IsNullOrWhiteSpace(property?.Items?.Ref))
 				property.Items.SchemeObject = GetFromRef(property.Items.Ref);
 		}
@@ -154,10 +226,18 @@ namespace SwaggerSharp
 		public string[] Required { get; set; } = new string[0];
 
 		public Reference[] AllOf { get; set; } = new Reference[0];
+
+		public PropertyType Items { get; set; }
 	}
 
+
+	[JsonConverter(typeof(JsonPropertyTypeConverter))]
 	public class PropertyType : Reference
 	{
+		public SchemeObject Parent { get; set; }
+
+		public string Name { get; set; }
+
 		public string Type { get; set; }
 
 		public string Format { get; set; }
@@ -189,6 +269,8 @@ namespace SwaggerSharp
 		public bool Required { get; set; }
 
 		public PropertyType Items { get; set; }
+
+		public string[] Enum { get; set; }
 	}
 
 	public class Reference
@@ -276,6 +358,64 @@ namespace SwaggerSharp
 				return Enum.Parse(objectType, "0");
 			}
 			return base.ReadJson(reader, objectType, existingValue, serializer);
+		}
+	}
+
+	public abstract class JsonCreationConverter<T> : JsonConverter
+	{
+		protected abstract T Create(System.Type objectType, JObject jsonObject, JsonReader reader);
+
+		public override bool CanConvert(System.Type objectType)
+		{
+			return typeof(T).IsAssignableFrom(objectType);
+		}
+
+		public override object ReadJson(JsonReader reader, System.Type objectType,
+		  object existingValue, JsonSerializer serializer)
+		{
+			var jsonObject = JObject.Load(reader);
+			var target = Create(objectType, jsonObject, reader);
+			serializer.Populate(jsonObject.CreateReader(), target);
+			return target;
+		}
+		public override bool CanWrite => false;
+
+		public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+		{
+			throw new NotImplementedException();
+		}
+
+	}
+	public class JsonPropertyTypeConverter : JsonCreationConverter<PropertyType>
+	{
+		protected override PropertyType Create(System.Type objectType, JObject jsonObject, JsonReader reader)
+		{
+			return (PropertyType)Activator.CreateInstance(objectType);
+		}
+
+		public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+		{
+			var jsonObject = JObject.Load(reader);
+
+			var target = Create(objectType, jsonObject, reader);
+
+			JToken token;
+			if (jsonObject.TryGetValue("type", StringComparison.CurrentCultureIgnoreCase, out token))
+			{
+
+				var type = token.ToString();
+				if (type == "object" && jsonObject.Count > 1)
+				{
+					var obj = new SchemeObject();
+
+					serializer.Populate(jsonObject.CreateReader(), obj);
+					target.SchemeObject = obj;
+					target.Type = type;
+					return target;
+				}
+			}
+			serializer.Populate(jsonObject.CreateReader(), target);
+			return target;
 		}
 	}
 }

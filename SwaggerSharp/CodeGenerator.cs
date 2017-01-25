@@ -139,12 +139,14 @@ namespace SwaggerSharp
 					Parameters =
 					{
 						new CodeParameterDeclarationExpression(typeof(string),"identifier"),
+						new CodeParameterDeclarationExpression(typeof(string),"encryptionKey"),
 						new CodeParameterDeclarationExpression(typeof(string),"loginUrl"),
 						new CodeParameterDeclarationExpression(typeof(HttpMessageHandler),"handler = null"),
 					},
 					BaseConstructorArgs =
 					{
 						new CodeArgumentReferenceExpression("identifier"),
+						new CodeArgumentReferenceExpression("encryptionKey"),
 						new CodeArgumentReferenceExpression("loginUrl"),
 						new CodeArgumentReferenceExpression("handler")
 					},
@@ -328,10 +330,18 @@ namespace SwaggerSharp
 			SecurityDefinition def)
 		{
 			//Always prepend operaton type to the operation name
-			var betterName = CleanseName(path.Value.OperationId);
-			//if (betterName.IndexOf(path.Key, StringComparison.CurrentCultureIgnoreCase) < 0)
-			//	betterName = UpperCaseFirst(path.Key) + betterName;
-            var member = new CodeMemberMethod
+			var operationId = path.Value.OperationId;
+			if (operationId == null)
+			{
+				//Lets generate it from the path
+				var parts = pathAttribute.Split(new [] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+				var validParts = parts?.Where(x => !x.StartsWith("{"))?.Select(UpperCaseFirst)?.ToArray();
+				operationId = validParts?.Count() > 0 ? string.Join("",validParts) : pathAttribute;
+			}
+			var betterName = CleanseName(operationId);
+			if (betterName.IndexOf(path.Key, StringComparison.CurrentCultureIgnoreCase) < 0)
+				betterName = UpperCaseFirst(path.Key) + betterName;
+			var member = new CodeMemberMethod
 			{
 				Attributes = MemberAttributes.Public,
 				Name = betterName,
@@ -366,10 +376,6 @@ namespace SwaggerSharp
 				}
 			}
 			member.ReturnType = new CodeTypeReference(returnType);
-			if (pathAttribute == "/user/createWithArray")
-			{
-				Console.WriteLine("foo");
-			}
 			var authentictated = path.Value.Security.Any(x=> x.ContainsKey(def.SecurityName));
 			var QueryParameters = new Dictionary<string,string>();
 			var HeaderParameters = new Dictionary<string, string>();
@@ -379,24 +385,25 @@ namespace SwaggerSharp
 			foreach (var parameter in path.Value.Parameters.OrderByDescending(x=> x.Required))
 			{
 				var type = GetTypeFromPropertyType(parameter.Type == null ? parameter.Schema : parameter, !parameter.Required);
-				var defaultValue = string.IsNullOrWhiteSpace(parameter.Default) ? "null" :( type == "string" ? $"\"{parameter.Default}\"" : parameter.Default);
-				var name = !parameter.Required ? $"{parameter.Name} = {defaultValue}" : parameter.Name;
-                member.Parameters.Add(new CodeParameterDeclarationExpression(type,name));
+				var defaultValue = string.IsNullOrWhiteSpace(parameter.Default) ? "null" : (type == "string" ? $"\"{parameter.Default}\"" : type == "bool" || type == "bool?" ? parameter.Default.ToLower() : parameter.Default);
+				var cleanName = RemoveInvalidCharacters(parameter.Name);
+				var name = !parameter.Required ? $"{cleanName} = {defaultValue}" : cleanName;
+				member.Parameters.Add(new CodeParameterDeclarationExpression(type, name));
 				switch (parameter.In)
 				{
 					case ParameterLocation.Body:
 						body = parameter.Name;
 						break;
 					case ParameterLocation.FormData:
-						FormsDataParameters[parameter.Name] = ValueToString(parameter.Name, type, !parameter.Required);
+						FormsDataParameters[parameter.Name] = ValueToString(cleanName, type, !parameter.Required);
 						break;
 					case ParameterLocation.Query:
 					case ParameterLocation.Path:
-						QueryParameters[parameter.Name] = ValueToString(parameter.Name, type, !parameter.Required);
-                        break;
+						QueryParameters[parameter.Name] = ValueToString(cleanName, type, !parameter.Required);
+						break;
 					case ParameterLocation.Header:
-						HeaderParameters[parameter.Name] = ValueToString(parameter.Name, type, !parameter.Required);
-                        break;
+						HeaderParameters[parameter.Name] = ValueToString(cleanName, type, !parameter.Required);
+						break;
 				}
 			}
 			
@@ -471,11 +478,10 @@ namespace SwaggerSharp
 
 
 
-		void CreateClass(SchemeObject swaggerObject)
+		void CreateClass(SchemeObject swaggerObject, CodeTypeDeclaration parentClass = null)
 		{
-
 			//var baseClass = GetApiType(api);
-			if (swaggerObject.Type != "object")
+			if (swaggerObject.Type != "object" && swaggerObject.Type != "array")
 			{
 
 				throw new Exception($"Unknown definition type: {swaggerObject.Name} - {swaggerObject.Type}");
@@ -492,23 +498,51 @@ namespace SwaggerSharp
 			{
 				AddPropertiesToObject(targetClass, reference.SchemeObject);
 			}
-
-			space.Types.Add(targetClass);
+			if (parentClass != null)
+			{
+				parentClass.Members.Add(targetClass);
+			}
+			else {
+				space.Types.Add(targetClass);
+			}
 		}
 		void AddPropertiesToObject(CodeTypeDeclaration targetClass, SchemeObject schemeObject)
 		{
-			foreach (var member in from propertyType in schemeObject.Properties.Where(x=> !string.IsNullOrWhiteSpace(x.Key)) let type = GetPropertyType(propertyType.Value) select new CodeMemberField
+			if (targetClass.Name == "SessionDurationsDistribution")
 			{
-				//Codedom does not support pretty auto properties...
-				CustomAttributes =
+			Console.WriteLine("Hola");
+			}
+			if (schemeObject.Properties == null)
+			{
+				if (schemeObject.Items?.SchemeObject != null && schemeObject.Items?.Ref == null)
 				{
-					
-					new CodeAttributeDeclaration("Newtonsoft.Json.JsonProperty",new CodeAttributeArgument(new CodeSnippetExpression($"\"{propertyType.Key}\"" ))),
-                },
-				Name = $"{CleanseName(propertyType.Key)} {{get; set;}}//",
-				Attributes = MemberAttributes.Public,
-				Type = type,
-			})
+					Console.WriteLine(schemeObject.Name);
+				}
+				return;
+			}
+			var embeddedClasses = schemeObject.Properties.Where(x => (x.Value.Items?.SchemeObject != null && x.Value.Items.Ref == null) || x.Value.SchemeObject != null && x.Value.Ref == null).Select(x => x.Value.SchemeObject ?? x.Value.Items.SchemeObject).ToList();
+
+			foreach (var c in embeddedClasses)
+			{
+				CreateClass(c, targetClass);
+			}
+
+			foreach (var member in from propertyType in schemeObject.Properties.Where(x => !string.IsNullOrWhiteSpace(x.Key))
+								   let type = GetPropertyType(propertyType.Value)
+								   let cleanName = CleanseName(propertyType.Key)
+	                 			   let propName = cleanName != targetClass.Name ? cleanName : $"{cleanName}Value"
+								   select new CodeMemberField
+								   {
+									   //Codedom does not support pretty auto properties...
+									   CustomAttributes =
+										{
+
+											new CodeAttributeDeclaration("Newtonsoft.Json.JsonProperty",new CodeAttributeArgument(new CodeSnippetExpression($"\"{propertyType.Key}\"" ))),
+										},
+									   Name = $"{propName} {{get; set;}}//",
+									   Attributes = MemberAttributes.Public,
+									   Type = type,
+								   })
 			{
 				targetClass.Members.Add(member);
 			}
@@ -533,8 +567,8 @@ namespace SwaggerSharp
 					return new CodeTypeReference($"{schemeObject}[]");
 				}
 			}
-			Console.WriteLine("Should not happen!!!");
-			return new CodeTypeReference(typeof (string));
+			Console.WriteLine($"Invalid Property Type!!! {property?.Name} : Parent {property?.Parent.Name}" );
+			return new CodeTypeReference(typeof(string));
 		}
 
 		static string GetTypeFromPropertyType(PropertyType property, bool nullable = false)
@@ -548,6 +582,7 @@ namespace SwaggerSharp
 				case "float":
 					return nullable ? "float?" : "float";
 				case "double":
+				case "number":
 					return nullable ? "double?" : "double";
 				case "string":
 				case "password":
@@ -562,15 +597,20 @@ namespace SwaggerSharp
 				case "dateTime":
 					return nullable ? "DateTime?" : "DateTime";
 				case "array":
-					var arraytype = GetTypeFromPropertyType(property.Items) ?? CleanseName(property.Items.SchemeObject?.Name);
+					var arraytype = GetTypeFromPropertyType(property.Items) ?? CleanseName(property.Items.SchemeObject?.Name ?? property.Description);
 					return $"{arraytype}[]";
+			}
+			if (property?.Enum?.Count() > 0)
+			{
+				return "string";
 			}
 			if (property?.SchemeObject != null)
 			{
 				return CleanseName(property.SchemeObject.Name);
 			}
-			Console.WriteLine("Should not happen!!!");
-			return null;
+
+			Console.WriteLine($"Invalid Property Type!!! {property?.Name} : Parent {property?.Parent?.Name}");
+			return "string";
 		}
 
 		Type GetApiType(SecurityDefinition def)
@@ -592,15 +632,31 @@ namespace SwaggerSharp
 
 		static string CleanseName(string name)
 		{
-			var strings = name.Split(' ','-','_','.');
+			if (name == null)
+				return null;
+			var strings = name.Split(' ', '-', '_', '.');
 			if (strings.Length == 1)
 				return UpperCaseFirst(name);
 			return strings.Aggregate("", (current, s) => current + UpperCaseFirst(s));
 		}
 
+		static string RemoveInvalidCharacters(string name)
+		{
+			string[] invalidCharacters = new[] {
+				"$",
+				"\\",
+				"/",
+			};
+			foreach (var c in invalidCharacters)
+			{
+				name = name.Replace(c, "");
+			}
+			return name;
+		}
+
 		static string UpperCaseFirst(string s)
 		{
-			if(string.IsNullOrWhiteSpace(s?.Trim()))
+			if (string.IsNullOrWhiteSpace(s?.Trim()))
 				return s;
 			var a = s.ToCharArray();
 			a[0] = char.ToUpper(a[0]);

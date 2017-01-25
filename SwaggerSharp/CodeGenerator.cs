@@ -71,6 +71,10 @@ namespace SwaggerSharp
 			}
 
 
+			sb.AppendLine("========================");
+			sb.AppendLine("========================");
+
+
 			var s = sb.ToString();
 			return s;
 		}
@@ -746,6 +750,8 @@ namespace SwaggerSharp
 
 		static string RemoveInvalidCharacters(string name)
 		{
+			if (name == "params")
+				return "parameters";
 			string[] invalidCharacters = new[] {
 				"$",
 				"\\",

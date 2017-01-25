@@ -62,7 +62,6 @@ namespace SwaggerSharp
 			var objectTree = Newtonsoft.Json.JsonConvert.DeserializeObject<SwaggerResponse>(json, settings);
 			objectTree.FillReferences();
 			var codeGen = new CodeGenerator();
-			codeGen.CreateApi(objectTree).Wait();
 			var report = codeGen.CreateApi(objectTree);
 			Console.WriteLine(report.GeneratePrettyReportOutput());
 		}

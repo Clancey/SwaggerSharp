@@ -498,6 +498,10 @@ namespace SwaggerSharp
 			{
 				AddPropertiesToObject(targetClass, reference.SchemeObject);
 			}
+			if (swaggerObject.Items?.SchemeObject != null && swaggerObject.Items.Ref == null && parentClass == null)
+			{
+				AddPropertiesToObject(targetClass, swaggerObject.Items.SchemeObject);
+			}
 			if (parentClass != null)
 			{
 				parentClass.Members.Add(targetClass);
@@ -508,16 +512,8 @@ namespace SwaggerSharp
 		}
 		void AddPropertiesToObject(CodeTypeDeclaration targetClass, SchemeObject schemeObject)
 		{
-			if (targetClass.Name == "SessionDurationsDistribution")
-			{
-			Console.WriteLine("Hola");
-			}
 			if (schemeObject.Properties == null)
 			{
-				if (schemeObject.Items?.SchemeObject != null && schemeObject.Items?.Ref == null)
-				{
-					Console.WriteLine(schemeObject.Name);
-				}
 				return;
 			}
 			var embeddedClasses = schemeObject.Properties.Where(x => (x.Value.Items?.SchemeObject != null && x.Value.Items.Ref == null) || x.Value.SchemeObject != null && x.Value.Ref == null).Select(x => x.Value.SchemeObject ?? x.Value.Items.SchemeObject).ToList();

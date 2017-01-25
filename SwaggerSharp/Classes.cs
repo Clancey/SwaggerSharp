@@ -94,12 +94,13 @@ namespace SwaggerSharp
 			
 			if (obj.Type == "array" && obj.Items.SchemeObject != null && (obj.Items.SchemeObject.Name == null || obj.Items.SchemeObject.Name == obj.Name))
 			{
-				obj.Items.SchemeObject.Name = obj.Items.Ref == null ? $"{obj.Name}Class" : obj.Name;
+				FixProperties(obj.Name, obj.Items.SchemeObject);
 			}
 			foreach (var prop in obj.Properties ?? new Dictionary<string, PropertyType>())
 			{
 				prop.Value.Name = prop.Key;
 				prop.Value.Parent = obj;
+
 				FillPropertyType(prop.Value);
 
 				if (prop.Value.Type == "object" && prop.Value.SchemeObject != null)

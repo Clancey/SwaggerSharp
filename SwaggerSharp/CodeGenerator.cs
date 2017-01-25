@@ -14,15 +14,86 @@ using Microsoft.CSharp;
 
 namespace SwaggerSharp
 {
+	public class CodeGeneratorReport
+	{
+		public string OutputFile { get; set; }
+		public List<CodeGenerationError> Errors { get; set; } = new List<CodeGenerationError>();
+		public List<CodeGenerationError> Warnings { get; set; } = new List<CodeGenerationError>();
+
+		public string GeneratePrettyReportOutput()
+		{
+			var sb = new StringBuilder();
+			sb.AppendLine("========================");
+			sb.AppendLine("========================");
+			sb.AppendLine("Overview");
+			sb.AppendLine("");
+			sb.AppendLine($"Output File: {OutputFile}");
+			sb.AppendLine($"Error Count: {Errors.Count}");
+			sb.AppendLine($"Warnings Count: {Warnings.Count}");
+			sb.AppendLine("");
+			sb.AppendLine("========================");
+			sb.AppendLine("========================");
+			if (Errors.Count > 0)
+			{
+				sb.AppendLine("");
+				sb.AppendLine("");
+				sb.AppendLine("========================");
+				sb.AppendLine("========================");
+				sb.AppendLine("<Errors>");
+				sb.AppendLine("========================");
+				sb.AppendLine("========================");
+
+				foreach (var error in Errors)
+				{
+					sb.AppendLine($"\tError {error.Path}");
+					if(!string.IsNullOrWhiteSpace(error.Message))
+						sb.AppendLine($"\t\tMessage: {error.Message}");
+				}
+
+			}
+
+			if (Warnings.Count > 0)
+			{
+				sb.AppendLine("");
+				sb.AppendLine("");
+				sb.AppendLine("========================");
+				sb.AppendLine("========================");
+				sb.AppendLine("<Warnings>");
+				sb.AppendLine("========================");
+				sb.AppendLine("========================");
+
+				foreach (var warning in Warnings)
+				{
+					sb.AppendLine($"\tWarning {warning.Path}");
+					if (!string.IsNullOrWhiteSpace(warning.Message))
+						sb.AppendLine($"\t\tMessage: {warning.Message}");
+				}
+			}
+
+
+			var s = sb.ToString();
+			return s;
+		}
+	}
+
+	public class CodeGenerationError
+	{
+		public string Message { get; set; }
+		public string Path { get; set; }
+		public object Data { get; set; }
+	}
 	class CodeGenerator
 	{
 		public string DefaultNameSpace { get; set; } = "Swagger";
 		public string OutputDirectory { get; set; } = Directory.GetCurrentDirectory();
 
+
 		CodeNamespace space;
-		public async Task CreateApi(SwaggerResponse swaggerResponse)
+		CodeGeneratorReport report;
+		public CodeGeneratorReport CreateApi(SwaggerResponse swaggerResponse)
 		{
 
+			report = new CodeGeneratorReport();
 			var target = new CodeCompileUnit();
 			space = new CodeNamespace(DefaultNameSpace);
 			space.Imports.Add(new CodeNamespaceImport("SimpleAuth"));
@@ -34,7 +105,14 @@ namespace SwaggerSharp
 
 			foreach (var def in swaggerResponse.Definitions)
 			{
-				CreateClass(def.Value);
+				try
+				{
+					CreateClass(def.Value);
+				}
+				catch (Exception ex)
+				{
+					report.Errors.Add(new CodeGenerationError { Data = def, Message = ex.Message });
+				}
 			}
 
 			var title = CleanseName(swaggerResponse.Info.Title);
@@ -77,10 +155,12 @@ namespace SwaggerSharp
 				contents = contents.Replace("@","");
 			}
 
-		
-			var tw = File.CreateText(Path.Combine(OutputDirectory, $"{title}.cs"));
+			var output = Path.Combine(OutputDirectory, $"{title}.cs");
+			var tw = File.CreateText(output);
 			tw.Write(contents);
 			tw.Close();
+			report.OutputFile = output;
+			return report;
 		}
 		void CreateApiClass(string title, SwaggerResponse swaggerResponse, SecurityDefinition api)
 		{
@@ -333,6 +413,8 @@ namespace SwaggerSharp
 			var operationId = path.Value.OperationId;
 			if (operationId == null)
 			{
+
+				report.Errors.Add(new CodeGenerationError { Data = path.Value, Message = $"{path.Key} OperationId is not set.", Path = pathAttribute });
 				//Lets generate it from the path
 				var parts = pathAttribute.Split(new [] { '/' }, StringSplitOptions.RemoveEmptyEntries);
 				var validParts = parts?.Where(x => !x.StartsWith("{"))?.Select(UpperCaseFirst)?.ToArray();
@@ -368,7 +450,16 @@ namespace SwaggerSharp
 			string responseType = null;
 			foreach (var response in path.Value.Responses.Where(x=> x.Key == "200" || x.Key == "default" ))
 			{
-				responseType = GetTypeFromPropertyType(response.Value.Schema);
+				try
+				{
+					responseType = response.Value.Schema == null ? null : GetTypeFromPropertyType(response.Value.Schema);
+				}
+				catch (Exception ex)
+				{
+					report.Errors.Add(new CodeGenerationError {Data = response, Message = $"{path.Key} Response Type: {ex.Message}", Path = $"{pathAttribute}" });
+					//Default
+					responseType = "string";
+				}
 				if (responseType != null)
 				{
 					returnType = $"Task<{responseType}>";
@@ -431,6 +522,15 @@ namespace SwaggerSharp
 				headerCode != null, authentictated);
 			member.Statements.Add(returnStatement);
 			targetClass.Members.Add(member);
+			if (path.Key.ToLower() == "post" && body == null)
+			{
+				report.Warnings.Add(new CodeGenerationError { Data = path.Value, Message = "Posting without a body (Verify)", Path = pathAttribute });
+			}
+			else if (path.Key.ToLower() == "put" && body == null)
+			{
+
+				report.Errors.Add(new CodeGenerationError { Data = path.Value, Message = "Put without a body is not valid", Path = pathAttribute });
+			}
 
 		}
 
@@ -502,9 +602,16 @@ namespace SwaggerSharp
 			{
 				AddPropertiesToObject(targetClass, swaggerObject.Items.SchemeObject);
 			}
+
+			//Validate
+			if (targetClass.Members.Count == 0)
+			{
+				report.Warnings.Add(new CodeGenerationError { Data = swaggerObject, Message = $"{targetClass.Name} has no properties" });
+			}
 			if (parentClass != null)
 			{
 				parentClass.Members.Add(targetClass);
+				report.Warnings.Add(new CodeGenerationError { Data = swaggerObject, Message = $"{targetClass.Name} is being nested inside {parentClass.Name}. Should this be a $ref?"});
 			}
 			else {
 				space.Types.Add(targetClass);
@@ -523,30 +630,34 @@ namespace SwaggerSharp
 				CreateClass(c, targetClass);
 			}
 
-			foreach (var member in from propertyType in schemeObject.Properties.Where(x => !string.IsNullOrWhiteSpace(x.Key))
-								   let type = GetPropertyType(propertyType.Value)
-								   let cleanName = CleanseName(propertyType.Key)
-	                 			   let propName = cleanName != targetClass.Name ? cleanName : $"{cleanName}Value"
-								   select new CodeMemberField
-								   {
-									   //Codedom does not support pretty auto properties...
-									   CustomAttributes =
-										{
+			foreach (var propertyType in schemeObject.Properties.Where(x => !string.IsNullOrWhiteSpace(x.Key))) {
+				try
+				{
+					var type = GetPropertyType(propertyType.Value);
+					var cleanName = CleanseName(propertyType.Key);
+					var propName = cleanName != targetClass.Name ? cleanName : $"{cleanName}Value";
+					var member = new CodeMemberField
+					{
+						//Codedom does not support pretty auto properties...
+						CustomAttributes = {
+						new CodeAttributeDeclaration("Newtonsoft.Json.JsonProperty",new CodeAttributeArgument(new CodeSnippetExpression($"\"{propertyType.Key}\"" ))),
+					},
+						Name = $"{propName} {{get; set;}}//",
+						Attributes = MemberAttributes.Public,
+						Type = type,
+					};
 
-											new CodeAttributeDeclaration("Newtonsoft.Json.JsonProperty",new CodeAttributeArgument(new CodeSnippetExpression($"\"{propertyType.Key}\"" ))),
-										},
-									   Name = $"{propName} {{get; set;}}//",
-									   Attributes = MemberAttributes.Public,
-									   Type = type,
-								   })
-			{
-				targetClass.Members.Add(member);
+					targetClass.Members.Add(member);
+				}
+				catch (Exception ex)
+				{
+					report.Errors.Add(new CodeGenerationError { Data = propertyType, Message = ex.Message, Path = $"{targetClass.Name} - {propertyType.Key}" });
+				}
 			}
 		}
 
 		static CodeTypeReference GetPropertyType(PropertyType property)
 		{
-
 			var type = GetTypeFromPropertyType(property);
 			if(type != null)
 				return new CodeTypeReference(type);
@@ -563,7 +674,6 @@ namespace SwaggerSharp
 					return new CodeTypeReference($"{schemeObject}[]");
 				}
 			}
-			Console.WriteLine($"Invalid Property Type!!! {property?.Name} : Parent {property?.Parent.Name}" );
 			return new CodeTypeReference(typeof(string));
 		}
 
@@ -604,9 +714,7 @@ namespace SwaggerSharp
 			{
 				return CleanseName(property.SchemeObject.Name);
 			}
-
-			Console.WriteLine($"Invalid Property Type!!! {property?.Name} : Parent {property?.Parent?.Name}");
-			return "string";
+			throw new Exception("Unknown type");
 		}
 
 		Type GetApiType(SecurityDefinition def)

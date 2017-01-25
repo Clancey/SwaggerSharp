@@ -56,12 +56,21 @@ namespace SwaggerSharp
 			{
 				MetadataPropertyHandling = MetadataPropertyHandling.Ignore,
 				PreserveReferencesHandling = PreserveReferencesHandling.Objects,
+				Error = HandleDeserializationError,
 			};
 
 			var objectTree = Newtonsoft.Json.JsonConvert.DeserializeObject<SwaggerResponse>(json, settings);
 			objectTree.FillReferences();
 			var codeGen = new CodeGenerator();
 			codeGen.CreateApi(objectTree).Wait();
+			var report = codeGen.CreateApi(objectTree);
+			Console.WriteLine(report.GeneratePrettyReportOutput());
+		}
+		public static void HandleDeserializationError(object sender, Newtonsoft.Json.Serialization.ErrorEventArgs errorArgs)
+		{
+			var currentError = errorArgs.ErrorContext.Error.Message;
+			Console.WriteLine(currentError);
+			errorArgs.ErrorContext.Handled = true;
 		}
 
 		static void ClearDirectory(string directory)
@@ -86,7 +95,7 @@ namespace SwaggerSharp
 			var codeGen = new CodeGenerator();
 			if(!string.IsNullOrWhiteSpace(generatedDirectory))
 				codeGen.OutputDirectory = generatedDirectory;
-			codeGen.CreateApi(objectTree).Wait();
+			var report = codeGen.CreateApi(objectTree);
 			return objectTree.SecurityDefinitions.Any() && objectTree.Definitions.Any();
 			
 			return objectTree.Definitions.Any();

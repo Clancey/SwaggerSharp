@@ -585,18 +585,27 @@ namespace SwaggerSharp
 		void CreateClass(SchemeObject swaggerObject, CodeTypeDeclaration parentClass = null)
 		{
 			//var baseClass = GetApiType(api);
-			if (swaggerObject.Type != "object" && swaggerObject.Type != "array")
+			bool isEnum = swaggerObject.Enum?.Length > 0;
+			if (swaggerObject.Type != "object" && swaggerObject.Type != "array" && !isEnum )
 			{
-
 				throw new Exception($"Unknown definition type: {swaggerObject.Name} - {swaggerObject.Type}");
 			}
 			var baseClass = swaggerObject.AllOf.Select(x => x.SchemeObject).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x?.Discriminator));
 			var targetClass = new CodeTypeDeclaration(CleanseName(swaggerObject.Name));
 			if (baseClass != null)
 				targetClass.BaseTypes.Add(new CodeTypeReference(CleanseName(baseClass.Name)));
-
+			if (isEnum)
+			{
+				targetClass.IsEnum = isEnum;
+				foreach (var e in swaggerObject.Enum)
+				{
+					var f = new CodeMemberField(targetClass.Name, e);
+					targetClass.Members.Add(f);
+				}
+			}
+			else
+				targetClass.IsPartial = true;
 			targetClass.Attributes = MemberAttributes.Public;
-			targetClass.IsPartial = true;
 			AddPropertiesToObject(targetClass, swaggerObject);
 			foreach (var reference in swaggerObject.AllOf?.Where(x => x.SchemeObject != baseClass))
 			{

@@ -229,6 +229,8 @@ namespace SwaggerSharp
 		public Reference[] AllOf { get; set; } = new Reference[0];
 
 		public PropertyType Items { get; set; }
+
+		public string[] Enum { get; set; }
 	}
 
 
@@ -325,11 +327,6 @@ namespace SwaggerSharp
 	public class Parameter : PropertyType
 	{
 		public ParameterLocation In { get; set; }
-		public string Name { get; set; }
-
-		public string Description { get; set; }
-
-		public bool Required { get; set; }
 
 		public PropertyType Schema { get; set; }
 
